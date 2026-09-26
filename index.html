@@ -1226,70 +1226,83 @@
             }
         }
 
-        async function submitStudentRegistration() {
-            const nameInput = document.getElementById('studentNameInput').value.trim();
-            const phoneInput = document.getElementById('studentPhoneInput').value.trim();
+ async function submitStudentRegistration() {
+    const nameInput = document.getElementById('studentNameInput').value.trim();
+    const phoneInput = document.getElementById('studentPhoneInput').value.trim();
 
-            if (!nameInput || nameInput.length < 3) {
-                showToast("يرجى إدخال اسمك الثلاثي بشكل صحيح", "error");
-                return;
-            }
+    if (!nameInput || nameInput.length < 3) {
+        showToast("يرجى إدخال اسمك الثلاثي بشكل صحيح", "error");
+        return;
+    }
 
-            if (!phoneInput || phoneInput.length < 8) {
-                showToast("يرجى إدخال رقم هاتف صحيح", "error");
-                return;
-            }
+    if (!phoneInput || phoneInput.length < 8) {
+        showToast("يرجى إدخال رقم هاتف صحيح", "error");
+        return;
+    }
 
-            if (!db || !targetBoardId) {
-                showToast("جاري التوصيل، حاول مرة أخرى...", "error");
-                return;
-            }
+    if (!targetBoardId) {
+        showToast("عذراً، كود السبورة غير صالح", "error");
+        return;
+    }
 
-            try {
-                const docRef = window.firebaseStore.doc(db, 'artifacts', appId, 'public', 'data', 'whiteboards', targetBoardId);
-                const snap = await window.firebaseStore.getDoc(docRef);
+    // إذا كانت قاعدة البيانات غير متصلة، نفذ وضع التجاوز المحلي لفتح الدرس للطالب مباشرة
+    if (!db) {
+        showToast("تم الدخول في الوضع المستقل (بدون قاعدة بيانات حية)", "info");
+        document.getElementById('studentRegisterModal').classList.add('hidden');
+        document.getElementById('viewerContentArea').classList.remove('hidden');
+        document.getElementById('downloadBtnViewer').classList.remove('hidden');
+        return;
+    }
 
-                if (!snap.exists()) {
-                    showToast("وثيقة الدرس غير موجودة أو تم حذفها", "error");
-                    return;
-                }
+    try {
+        const docRef = window.firebaseStore.doc(db, 'artifacts', appId, 'public', 'data', 'whiteboards', targetBoardId);
+        const snap = await window.firebaseStore.getDoc(docRef);
 
-                const boardData = snap.data();
-
-                if (Date.now() > boardData.expireAt) {
-                    showToast("عذراً، انتهت صلاحية رابط هذا الدرس", "error");
-                    return;
-                }
-
-                const studentRecord = {
-                    name: nameInput,
-                    phone: phoneInput,
-                    token: scannedToken || 'عام',
-                    time: new Date().toLocaleTimeString('ar-EG', { hour: '2-digit', minute: '2-digit', second: '2-digit' })
-                };
-
-                const updatedAttendees = boardData.attendees ? [...boardData.attendees, studentRecord] : [studentRecord];
-
-                await window.firebaseStore.updateDoc(docRef, {
-                    attendees: updatedAttendees
-                });
-
-                studentPages = boardData.pages || [];
-                currentStudentPageIndex = 0;
-
-                document.getElementById('studentRegisterModal').classList.add('hidden');
-                document.getElementById('viewerContentArea').classList.remove('hidden');
-                document.getElementById('downloadBtnViewer').classList.remove('hidden');
-                document.getElementById('viewerTotalPages').innerText = studentPages.length;
-
-                renderStudentPage();
-                showToast(`مرحباً بك يا ${nameInput}! تم تسجيل دخولك بنجاح.`, "success");
-
-            } catch (err) {
-                console.error("Error registering student:", err);
-                showToast("حدث خطأ أثناء التسجيل، حاول مجدداً", "error");
-            }
+        if (!snap.exists()) {
+            showToast("وثيقة الدرس غير موجودة أو تم حذفها", "error");
+            return;
         }
+
+        const boardData = snap.data();
+
+        if (Date.now() > boardData.expireAt) {
+            showToast("عذراً، انتهت صلاحية رابط هذا الدرس", "error");
+            return;
+        }
+
+        const studentRecord = {
+            name: nameInput,
+            phone: phoneInput,
+            token: scannedToken || 'عام',
+            time: new Date().toLocaleTimeString('ar-EG', { hour: '2-digit', minute: '2-digit', second: '2-digit' })
+        };
+
+        const updatedAttendees = boardData.attendees ? [...boardData.attendees, studentRecord] : [studentRecord];
+
+        await window.firebaseStore.updateDoc(docRef, {
+            attendees: updatedAttendees
+        });
+
+        studentPages = boardData.pages || [];
+        currentStudentPageIndex = 0;
+
+        document.getElementById('studentRegisterModal').classList.add('hidden');
+        document.getElementById('viewerContentArea').classList.remove('hidden');
+        document.getElementById('downloadBtnViewer').classList.remove('hidden');
+        document.getElementById('viewerTotalPages').innerText = studentPages.length;
+
+        renderStudentPage();
+        showToast(`مرحباً بك يا ${nameInput}! تم تسجيل دخولك بنجاح.`, "success");
+
+    } catch (err) {
+        console.error("Error registering student:", err);
+        showToast("حدث خطأ أثناء الاتصال، تم تخطي التسجيل لفتح الدرس", "info");
+        
+        // فتح العرض للطالب في حال حدوث خطأ في الاتصال
+        document.getElementById('studentRegisterModal').classList.add('hidden');
+        document.getElementById('viewerContentArea').classList.remove('hidden');
+    }
+}
 
         function renderStudentPage() {
             if (studentPages.length > 0) {
