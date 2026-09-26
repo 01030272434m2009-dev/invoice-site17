@@ -687,7 +687,9 @@
             ctx.lineJoin = 'round';
 
             if (currentTool === 'shape') {
-                canvasSnapshot = ctx.getImageData(0, 0, canvas.width, canvas.height);
+                if (canvas.width > 0 && canvas.height > 0) {
+                    canvasSnapshot = ctx.getImageData(0, 0, canvas.width, canvas.height);
+                }
             } else {
                 ctx.beginPath();
                 ctx.moveTo(lastX, lastY);
@@ -729,7 +731,9 @@
             const currentY = e.clientY - rect.top;
 
             if (currentTool === 'shape') {
-                ctx.putImageData(canvasSnapshot, 0, 0);
+                if (canvasSnapshot) {
+                    ctx.putImageData(canvasSnapshot, 0, 0);
+                }
                 drawShapePreview(shapeStartX, shapeStartY, currentX, currentY);
             } else {
                 ctx.quadraticCurveTo(lastX, lastY, (lastX + currentX) / 2, (lastY + currentY) / 2);
@@ -950,7 +954,7 @@
            ========================================================================== */
         async function initFirebase() {
             try {
-                if (typeof __firebase_config !== 'undefined') {
+                if (typeof window.firebaseStore !== 'undefined' && typeof __firebase_config !== 'undefined') {
                     const config = JSON.parse(__firebase_config);
                     const app = window.firebaseStore.initializeApp(config);
                     db = window.firebaseStore.getFirestore(app);
@@ -963,7 +967,7 @@
                     }
                 }
             } catch (err) {
-                console.warn("Firebase Fallback:", err);
+                console.warn("Firebase Init Fallback:", err);
             }
         }
 
@@ -1073,7 +1077,6 @@
                 baseUrl = window.location.href.split('?')[0].split('#')[0];
             }
 
-            // Always strip blob: if present
             if (baseUrl.startsWith('blob:')) {
                 baseUrl = baseUrl.replace('blob:', '');
             }
@@ -1167,14 +1170,15 @@
                 return;
             }
 
-            let csvContent = "data:text/csv;charset=utf-8,الرقم,اسم الطالب,رقم الهاتف,كود الدخول,وقت المسح\n";
+            let csvContent = "\uFEFFالرقم,اسم الطالب,رقم الهاتف,كود الدخول,وقت المسح\n";
             attendanceList.forEach((st, i) => {
                 csvContent += `${i + 1},"${st.name}","${st.phone}","${st.token}","${st.time}"\n`;
             });
 
-            const encodedUri = encodeURI(csvContent);
+            const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+            const url = URL.createObjectURL(blob);
             const link = document.createElement("a");
-            link.setAttribute("href", encodedUri);
+            link.setAttribute("href", url);
             link.setAttribute("download", `سجل_حضور_السبورة_${Date.now()}.csv`);
             document.body.appendChild(link);
             link.click();
@@ -1208,7 +1212,7 @@
             document.getElementById('studentViewerApp').classList.remove('hidden');
             document.getElementById('studentViewerApp').classList.add('flex');
 
-            if (typeof __firebase_config !== 'undefined') {
+            if (typeof window.firebaseStore !== 'undefined' && typeof __firebase_config !== 'undefined') {
                 const config = JSON.parse(__firebase_config);
                 const app = window.firebaseStore.initializeApp(config);
                 db = window.firebaseStore.getFirestore(app);
