@@ -1,0 +1,1351 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>السبورة الذكية التفاعلية - Smart Board Studio</title>
+    
+    <!-- Tailwind CSS CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- FontAwesome Icons CDN -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+    
+    <!-- Cairo Font from Google Fonts -->
+    <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@300;400;600;700;800;900&display=swap" rel="stylesheet">
+    
+    <!-- QRCode.js Library CDN -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+            theme: {
+                extend: {
+                    colors: {
+                        board: {
+                            white: '#ffffff',
+                            black: '#121212',
+                            green: '#0b2b1a',
+                            slate: '#0f172a'
+                        },
+                        accent: {
+                            blue: '#2563eb',
+                            cyan: '#06b6d4',
+                            emerald: '#10b981',
+                            amber: '#f59e0b',
+                            rose: '#f43f5e',
+                            purple: '#8b5cf6'
+                        }
+                    },
+                    fontFamily: {
+                        sans: ['Cairo', 'sans-serif']
+                    }
+                }
+            }
+        }
+    </script>
+
+    <style>
+        * {
+            touch-action: none; /* Prevents default touch scrolling for tablet stylus drawing */
+            -webkit-tap-highlight-color: transparent;
+        }
+        body, html {
+            margin: 0;
+            padding: 0;
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
+            font-family: 'Cairo', sans-serif;
+            user-select: none;
+            -webkit-user-select: none;
+        }
+
+        /* Background grid patterns */
+        .bg-grid-light {
+            background-image: radial-gradient(#cbd5e1 1px, transparent 1px);
+            background-size: 24px 24px;
+        }
+        .bg-grid-dark {
+            background-image: radial-gradient(#334155 1px, transparent 1px);
+            background-size: 24px 24px;
+        }
+
+        /* Glassmorphic UI Panels */
+        .glass-panel {
+            background: rgba(15, 23, 42, 0.85);
+            backdrop-filter: blur(16px);
+            -webkit-backdrop-filter: blur(16px);
+            border: 1px solid rgba(255, 255, 255, 0.12);
+        }
+
+        /* Custom Scrollbar */
+        ::-webkit-scrollbar {
+            width: 6px;
+            height: 6px;
+        }
+        ::-webkit-scrollbar-thumb {
+            background: #475569;
+            border-radius: 9999px;
+        }
+
+        /* Active Tool Glow */
+        .tool-active {
+            box-shadow: 0 0 15px rgba(37, 99, 235, 0.5);
+            border-color: #3b82f6 !important;
+            transform: scale(1.05);
+        }
+
+        /* Gesture Eraser Overlay */
+        #gestureEraserBubble {
+            pointer-events: none;
+            transition: width 0.1s, height 0.1s, opacity 0.2s;
+        }
+
+        /* Ruler Overlay Styling */
+        #rulerOverlay {
+            pointer-events: auto;
+            touch-action: none;
+            cursor: move;
+        }
+    </style>
+</head>
+<body class="bg-slate-900 text-slate-100 flex flex-col h-screen w-screen overflow-hidden">
+
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getAuth, signInAnonymously, signInWithCustomToken } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getFirestore, doc, setDoc, getDoc, updateDoc, increment, onSnapshot } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+
+        // Attach Firebase modules to global scope for application access
+        window.firebaseStore = {
+            initializeApp, signInAnonymously, signInWithCustomToken, getAuth,
+            getFirestore, doc, setDoc, getDoc, updateDoc, increment, onSnapshot
+        };
+    </script>
+
+    <div id="whiteboardApp" class="relative w-full h-full flex flex-col justify-between overflow-hidden">
+
+        <!-- Top Header Controls -->
+        <header class="absolute top-3 left-4 right-4 z-30 flex items-center justify-between pointer-events-none">
+            <!-- App Logo & Badge -->
+            <div class="flex items-center gap-3 pointer-events-auto">
+                <div class="glass-panel px-4 py-2 rounded-2xl flex items-center gap-3 shadow-xl border border-slate-700/60">
+                    <div class="w-9 h-9 rounded-xl bg-gradient-to-tr from-blue-600 to-cyan-400 flex items-center justify-center text-white shadow-md">
+                        <i class="fa-solid fa-chalkboard-user text-lg"></i>
+                    </div>
+                    <div>
+                        <h1 class="font-extrabold text-sm text-white leading-tight flex items-center gap-2">
+                            السبورة الذكية <span class="bg-blue-500/20 text-blue-400 text-[10px] px-2 py-0.5 rounded-full border border-blue-500/30">Pro Tablet</span>
+                        </h1>
+                        <p class="text-[10px] text-slate-400">السبورة التفاعلية للتعليم الذكي</p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Header Action Buttons -->
+            <div class="flex items-center gap-2 pointer-events-auto">
+                <!-- Theme Switcher -->
+                <div class="glass-panel p-1.5 rounded-2xl flex items-center gap-1 shadow-xl border border-slate-700/60">
+                    <button onclick="setBoardTheme('white')" class="w-8 h-8 rounded-xl bg-white border border-slate-300 flex items-center justify-center text-slate-800 transition hover:scale-105" title="سبورة بيضاء">
+                        <i class="fa-solid fa-square text-xs"></i>
+                    </button>
+                    <button onclick="setBoardTheme('white-grid')" class="w-8 h-8 rounded-xl bg-slate-100 border border-slate-300 flex items-center justify-center text-blue-600 transition hover:scale-105" title="سبورة بيضاء بمربعات">
+                        <i class="fa-solid fa-border-all text-xs"></i>
+                    </button>
+                    <button onclick="setBoardTheme('black')" class="w-8 h-8 rounded-xl bg-black border border-slate-700 flex items-center justify-center text-white transition hover:scale-105" title="سبورة سوداء">
+                        <i class="fa-solid fa-square text-xs"></i>
+                    </button>
+                    <button onclick="setBoardTheme('black-grid')" class="w-8 h-8 rounded-xl bg-slate-950 border border-slate-700 flex items-center justify-center text-cyan-400 transition hover:scale-105" title="سبورة سوداء بمربعات">
+                        <i class="fa-solid fa-border-all text-xs"></i>
+                    </button>
+                </div>
+
+                <!-- Attendance Log Button -->
+                <button onclick="openAttendanceModal()" class="bg-slate-800 hover:bg-slate-700 text-emerald-400 border border-emerald-500/30 font-bold px-3.5 py-2.5 rounded-2xl shadow-xl flex items-center gap-2 text-xs transition active:scale-95">
+                    <i class="fa-solid fa-clipboard-user text-base"></i>
+                    <span>سجل الحضور</span>
+                    <span id="headerAttendanceBadge" class="bg-emerald-500 text-slate-950 px-1.5 py-0.5 rounded-full text-[10px] font-extrabold">0</span>
+                </button>
+
+                <!-- QR Share Button -->
+                <button onclick="openShareModal()" class="bg-gradient-to-r from-blue-600 to-cyan-500 hover:from-blue-700 hover:to-cyan-600 text-white font-bold px-4 py-2.5 rounded-2xl shadow-xl flex items-center gap-2 text-xs transition-all active:scale-95 border border-cyan-400/30">
+                    <i class="fa-solid fa-qrcode text-base"></i>
+                    <span>إنشاء باركود الدرس</span>
+                </button>
+            </div>
+        </header>
+
+        <!-- Main Canvas Area -->
+        <main class="relative w-full h-full bg-white transition-colors duration-300" id="canvasContainer">
+            <canvas id="paintCanvas" class="w-full h-full block cursor-crosshair"></canvas>
+
+            <!-- Gesture Eraser Overlay Circle -->
+            <div id="gestureEraserBubble" class="fixed rounded-full bg-rose-500/25 border-2 border-rose-500/80 -translate-x-1/2 -translate-y-1/2 pointer-events-none hidden z-40 backdrop-blur-sm flex items-center justify-center shadow-2xl">
+                <i class="fa-solid fa-eraser text-rose-500 text-lg opacity-80"></i>
+            </div>
+
+            <!-- Ruler Overlay -->
+            <div id="rulerOverlay" class="absolute top-1/3 left-1/3 w-96 h-20 bg-amber-100/90 backdrop-blur-md border-2 border-amber-600/60 rounded-xl shadow-2xl hidden z-20 flex flex-col justify-between p-2 select-none">
+                <div class="flex items-center justify-between text-xs font-bold text-amber-900 border-b border-amber-300/60 pb-1">
+                    <span class="flex items-center gap-1"><i class="fa-solid fa-ruler-horizontal"></i> مسطرة القياس التفاعلية</span>
+                    <button onclick="toggleRuler()" class="text-rose-600 hover:bg-amber-200/50 p-1 rounded-lg">
+                        <i class="fa-solid fa-xmark"></i>
+                    </button>
+                </div>
+                <div class="flex justify-between items-end h-8 px-2 border-t border-amber-800/40">
+                    <span class="text-[9px] font-mono font-bold text-amber-950">0</span>
+                    <span class="text-[9px] font-mono text-amber-800">1</span>
+                    <span class="text-[9px] font-mono text-amber-800">2</span>
+                    <span class="text-[9px] font-mono text-amber-800">3</span>
+                    <span class="text-[9px] font-mono text-amber-800">4</span>
+                    <span class="text-[9px] font-mono text-amber-800">5</span>
+                    <span class="text-[9px] font-mono font-bold text-amber-950">6 cm</span>
+                </div>
+            </div>
+        </main>
+
+        <!-- Floating Left Toolbar -->
+        <aside class="absolute top-20 right-4 z-30 glass-panel p-2 rounded-2xl flex flex-col items-center gap-2.5 shadow-2xl border border-slate-700/60">
+            <!-- Pen Tool -->
+            <button id="toolPen" onclick="selectTool('pen')" class="w-11 h-11 rounded-xl flex flex-col items-center justify-center gap-0.5 text-blue-400 bg-blue-500/20 border border-blue-500/30 tool-active transition" title="القلم">
+                <i class="fa-solid fa-pen-nib text-base"></i>
+                <span class="text-[9px] font-bold">قلم</span>
+            </button>
+
+            <!-- Dual Color Pen Switcher -->
+            <button id="toolDualPen" onclick="toggleDualColorMode()" class="w-11 h-11 rounded-xl flex flex-col items-center justify-center gap-0.5 text-slate-300 hover:bg-slate-800 border border-slate-700 transition relative" title="قلم لونين">
+                <div class="flex items-center -space-x-1">
+                    <span id="dualColorDot1" class="w-3 h-3 rounded-full bg-blue-500 border border-slate-900 z-10"></span>
+                    <span id="dualColorDot2" class="w-3 h-3 rounded-full bg-rose-500 border border-slate-900"></span>
+                </div>
+                <span class="text-[9px] font-bold">لونين</span>
+            </button>
+
+            <!-- Eraser Tool -->
+            <button id="toolEraser" onclick="selectTool('eraser')" class="w-11 h-11 rounded-xl flex flex-col items-center justify-center gap-0.5 text-slate-300 hover:bg-slate-800 border border-slate-700 transition" title="ممحاة">
+                <i class="fa-solid fa-eraser text-base"></i>
+                <span class="text-[9px] font-bold">ممحاة</span>
+            </button>
+
+            <!-- Shapes Menu Button -->
+            <button id="toolShapesBtn" onclick="toggleShapesMenu()" class="w-11 h-11 rounded-xl flex flex-col items-center justify-center gap-0.5 text-slate-300 hover:bg-slate-800 border border-slate-700 transition relative" title="الأشكال">
+                <i class="fa-solid fa-shapes text-base"></i>
+                <span class="text-[9px] font-bold">أشكال</span>
+            </button>
+
+            <!-- Ruler Button -->
+            <button onclick="toggleRuler()" class="w-11 h-11 rounded-xl flex flex-col items-center justify-center gap-0.5 text-amber-400 hover:bg-slate-800 border border-slate-700 transition" title="المسطرة">
+                <i class="fa-solid fa-ruler text-base"></i>
+                <span class="text-[9px] font-bold">مسطرة</span>
+            </button>
+
+            <div class="w-8 h-[1px] bg-slate-700 my-0.5"></div>
+
+            <!-- Color Palette -->
+            <div class="flex flex-col gap-1.5 py-1 items-center">
+                <button onclick="setColor('#2563eb')" class="w-6 h-6 rounded-full bg-blue-600 border-2 border-white shadow hover:scale-110 transition" title="أزرق"></button>
+                <button onclick="setColor('#ef4444')" class="w-6 h-6 rounded-full bg-red-500 border-2 border-white shadow hover:scale-110 transition" title="أحمر"></button>
+                <button onclick="setColor('#10b981')" class="w-6 h-6 rounded-full bg-emerald-500 border-2 border-white shadow hover:scale-110 transition" title="أخضر"></button>
+                <button onclick="setColor('#f59e0b')" class="w-6 h-6 rounded-full bg-amber-500 border-2 border-white shadow hover:scale-110 transition" title="أصفر"></button>
+                <button onclick="setColor('#ffffff')" class="w-6 h-6 rounded-full bg-white border-2 border-slate-400 shadow hover:scale-110 transition" title="أبيض"></button>
+                <button onclick="setColor('#000000')" class="w-6 h-6 rounded-full bg-black border-2 border-white shadow hover:scale-110 transition" title="أسود"></button>
+            </div>
+
+            <div class="w-8 h-[1px] bg-slate-700 my-0.5"></div>
+
+            <!-- Clear Canvas Button -->
+            <button onclick="clearCurrentPage()" class="w-11 h-11 rounded-xl flex flex-col items-center justify-center gap-0.5 text-rose-400 hover:bg-rose-500/20 border border-slate-700 transition" title="مسح الورقة">
+                <i class="fa-solid fa-trash-can text-base"></i>
+                <span class="text-[9px] font-bold">مسح</span>
+            </button>
+        </aside>
+
+        <!-- Shapes Selection Popup -->
+        <div id="shapesPopup" class="absolute top-36 right-20 z-40 glass-panel p-3 rounded-2xl hidden grid grid-cols-3 gap-2 shadow-2xl border border-slate-700 w-48">
+            <button onclick="selectShape('line')" class="p-2 bg-slate-800 hover:bg-slate-700 rounded-xl text-xs font-semibold flex flex-col items-center gap-1 text-slate-200">
+                <i class="fa-solid fa-minus text-base"></i> خط
+            </button>
+            <button onclick="selectShape('arrow')" class="p-2 bg-slate-800 hover:bg-slate-700 rounded-xl text-xs font-semibold flex flex-col items-center gap-1 text-slate-200">
+                <i class="fa-solid fa-arrow-right text-base"></i> سهم
+            </button>
+            <button onclick="selectShape('rectangle')" class="p-2 bg-slate-800 hover:bg-slate-700 rounded-xl text-xs font-semibold flex flex-col items-center gap-1 text-slate-200">
+                <i class="fa-regular fa-square text-base"></i> مربع
+            </button>
+            <button onclick="selectShape('circle')" class="p-2 bg-slate-800 hover:bg-slate-700 rounded-xl text-xs font-semibold flex flex-col items-center gap-1 text-slate-200">
+                <i class="fa-regular fa-circle text-base"></i> دائرة
+            </button>
+            <button onclick="selectShape('triangle')" class="p-2 bg-slate-800 hover:bg-slate-700 rounded-xl text-xs font-semibold flex flex-col items-center gap-1 text-slate-200">
+                <i class="fa-solid fa-play -rotate-90 text-base"></i> مثلث
+            </button>
+        </div>
+
+        <!-- Bottom Controls Bar -->
+        <footer class="absolute bottom-4 left-4 right-4 z-30 flex items-center justify-between pointer-events-none">
+            <!-- Stroke Slider & Undo/Redo -->
+            <div class="glass-panel px-4 py-2 rounded-2xl flex items-center gap-4 shadow-2xl border border-slate-700/60 pointer-events-auto">
+                <div class="flex items-center gap-2">
+                    <i class="fa-solid fa-circle text-[8px] text-slate-400"></i>
+                    <input type="range" id="strokeWidthSlider" min="2" max="40" value="6" oninput="setStrokeWidth(this.value)" class="w-24 accent-blue-500 cursor-pointer">
+                    <i class="fa-solid fa-circle text-base text-slate-200"></i>
+                    <span id="strokeWidthDisplay" class="text-xs font-bold text-blue-400 w-6">6px</span>
+                </div>
+
+                <div class="h-5 w-[1px] bg-slate-700"></div>
+
+                <div class="flex items-center gap-1">
+                    <button onclick="undo()" class="p-2 hover:bg-slate-800 text-slate-300 hover:text-white rounded-xl transition text-xs" title="تراجع">
+                        <i class="fa-solid fa-rotate-left text-sm"></i>
+                    </button>
+                    <button onclick="redo()" class="p-2 hover:bg-slate-800 text-slate-300 hover:text-white rounded-xl transition text-xs" title="إعادة">
+                        <i class="fa-solid fa-rotate-right text-sm"></i>
+                    </button>
+                </div>
+            </div>
+
+            <!-- Page Navigation Controls -->
+            <div class="glass-panel px-4 py-2 rounded-2xl flex items-center gap-3 shadow-2xl border border-slate-700/60 pointer-events-auto">
+                <button onclick="prevPage()" class="p-2 hover:bg-slate-800 text-slate-300 hover:text-white rounded-xl transition text-xs" title="الصفحة السابقة">
+                    <i class="fa-solid fa-chevron-right text-sm"></i>
+                </button>
+                <span class="text-xs font-bold text-white">
+                    صفحة <span id="currentPageNum" class="text-blue-400 font-extrabold">1</span> من <span id="totalPagesNum">1</span>
+                </span>
+                <button onclick="nextPage()" class="p-2 hover:bg-slate-800 text-slate-300 hover:text-white rounded-xl transition text-xs" title="الصفحة التالية">
+                    <i class="fa-solid fa-chevron-left text-sm"></i>
+                </button>
+                <button onclick="addNewPage()" class="bg-blue-600 hover:bg-blue-500 text-white font-bold px-3 py-1.5 rounded-xl text-xs flex items-center gap-1 shadow transition">
+                    <i class="fa-solid fa-plus"></i>
+                    <span>ورقة جديدة</span>
+                </button>
+            </div>
+        </footer>
+    </div>
+
+    <!-- QR Code Generator Modal -->
+    <div id="shareModal" class="fixed inset-0 bg-slate-950/80 backdrop-blur-md z-50 flex items-center justify-center p-4 hidden">
+        <div class="glass-panel max-w-lg w-full rounded-3xl border border-slate-700/80 p-6 space-y-5 relative shadow-2xl">
+            <button onclick="closeShareModal()" class="absolute top-4 left-4 text-slate-400 hover:text-white p-2">
+                <i class="fa-solid fa-xmark text-xl"></i>
+            </button>
+
+            <div class="flex items-center gap-3 border-b border-slate-800 pb-3">
+                <div class="w-10 h-10 rounded-2xl bg-gradient-to-tr from-blue-600 to-cyan-400 flex items-center justify-center text-white shadow-lg">
+                    <i class="fa-solid fa-qrcode text-xl"></i>
+                </div>
+                <div>
+                    <h3 class="font-extrabold text-base text-white">باركود الدخول للدرس التفاعلي</h3>
+                    <p class="text-xs text-slate-400">يمكنك اختيار نظام الباركود المتغير أو الرابط الموحد</p>
+                </div>
+            </div>
+
+            <!-- Expiration Selection -->
+            <div class="space-y-3 text-xs">
+                <!-- Custom Base Domain / URL Input -->
+                <div class="space-y-1">
+                    <label class="font-bold text-slate-300 flex items-center gap-2">
+                        <i class="fa-solid fa-globe text-blue-400"></i> رابط موقع السبورة (عنوان الصفحة الحقيقي):
+                    </label>
+                    <input type="text" id="customBaseUrlInput" oninput="renderDynamicQRCode()" placeholder="https://your-domain.com/index.html" class="w-full bg-slate-900 border border-slate-700 text-slate-200 text-xs rounded-xl p-2.5 focus:outline-none focus:border-blue-500 font-mono" dir="ltr">
+                    <p id="blobWarningText" class="text-[10px] text-amber-400 font-semibold hidden">
+                        <i class="fa-solid fa-triangle-exclamation"></i> تنبيه: تم إزالة بادئة المعاينة المؤقتة (blob). إذا قمت برفع الصفحة على موقعك أو سيرفر، يمكنك كتابة رابط الموقع أعلاه ليتم تضمينه في الباركود.
+                    </p>
+                </div>
+
+                <div class="space-y-1.5">
+                    <label class="font-bold text-slate-300 flex items-center gap-2">
+                        <i class="fa-solid fa-clock text-amber-400"></i> مدة صلاحية الباركود والرابط:
+                    </label>
+                    <select id="qrExpirySelect" class="w-full bg-slate-900 border border-slate-700 text-slate-200 text-xs rounded-xl p-3 focus:outline-none focus:border-blue-500">
+                        <option value="1h">ساعة واحدة</option>
+                        <option value="24h" selected>24 ساعة (يوم واحد)</option>
+                        <option value="7d">أسبوع واحد (7 أيام)</option>
+                    </select>
+                </div>
+
+                <!-- Link Mode Controls -->
+                <div class="space-y-2 pt-2 border-t border-slate-800">
+                    <label class="font-bold text-slate-300 text-xs flex items-center gap-2">
+                        <i class="fa-solid fa-sliders text-cyan-400"></i> نظام وأمان الرابط للطلاب:
+                    </label>
+                    <div class="grid grid-cols-2 gap-2">
+                        <label class="flex items-center gap-2 bg-slate-900/90 p-2.5 rounded-xl border border-slate-700/80 cursor-pointer hover:border-blue-500 transition">
+                            <input type="radio" name="linkTypeRadio" value="dynamic" checked onchange="setLinkTypeMode('dynamic')" class="accent-blue-500">
+                            <div>
+                                <p class="text-white text-[11px] font-bold">متغير تلقائياً (فريد)</p>
+                                <p class="text-[9px] text-slate-400">يتجدد الكود لكل طالب</p>
+                            </div>
+                        </label>
+                        <label class="flex items-center gap-2 bg-slate-900/90 p-2.5 rounded-xl border border-slate-700/80 cursor-pointer hover:border-blue-500 transition">
+                            <input type="radio" name="linkTypeRadio" value="static" onchange="setLinkTypeMode('static')" class="accent-blue-500">
+                            <div>
+                                <p class="text-white text-[11px] font-bold">رابط موحد للجميع</p>
+                                <p class="text-[9px] text-slate-400">باركود واحد ثابت</p>
+                            </div>
+                        </label>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Action Button -->
+            <button id="generateQRBtn" onclick="processCloudPublish()" class="w-full bg-gradient-to-r from-blue-600 to-cyan-500 hover:from-blue-700 hover:to-cyan-600 text-white font-bold py-3 rounded-2xl text-xs transition shadow-lg flex items-center justify-center gap-2">
+                <i class="fa-solid fa-bolt"></i>
+                <span>بدء بث الباركود للطلاب</span>
+            </button>
+
+            <!-- QR Display Box -->
+            <div id="qrResultContainer" class="hidden flex-col items-center justify-center space-y-3 pt-3 border-t border-slate-800">
+                <div class="relative p-3 bg-white rounded-2xl shadow-2xl flex items-center justify-center border-4 border-blue-500/30" id="qrcodeCanvas"></div>
+                
+                <div id="pinCodeBadgeBox" class="bg-cyan-950/90 border border-cyan-500/40 text-cyan-200 px-4 py-2 rounded-xl text-xs font-bold flex items-center gap-2">
+                    <i class="fa-solid fa-key text-amber-400 animate-pulse"></i>
+                    <span>الكود السري الحالي: <strong id="generatedPinCode" class="text-amber-300 font-mono text-base tracking-widest">------</strong></span>
+                </div>
+
+                <p id="qrNoticeText" class="text-[11px] text-emerald-400 text-center font-semibold">
+                    <i class="fa-solid fa-rotate text-xs animate-spin"></i> سيتم تجديد الباركود تلقائياً فور قيام الطالب بالمسح!
+                </p>
+
+                <div class="flex items-center gap-2 w-full">
+                    <input type="text" id="shareUrlInput" readonly class="w-full bg-slate-900 border border-slate-700 text-slate-300 text-xs rounded-xl p-2.5 font-mono">
+                    <button onclick="copyShareUrl()" class="bg-blue-600 hover:bg-blue-500 text-white font-bold px-4 py-2.5 rounded-xl text-xs flex-shrink-0 transition border border-blue-400/30 flex items-center gap-1.5 shadow-md">
+                        <i class="fa-solid fa-copy"></i>
+                        <span>نسخ الرابط</span>
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Attendance Table Modal -->
+    <div id="attendanceModal" class="fixed inset-0 bg-slate-950/80 backdrop-blur-md z-50 flex items-center justify-center p-4 hidden">
+        <div class="glass-panel max-w-2xl w-full rounded-3xl border border-slate-700/80 p-6 space-y-4 relative shadow-2xl flex flex-col max-h-[85vh]">
+            <button onclick="closeAttendanceModal()" class="absolute top-4 left-4 text-slate-400 hover:text-white p-2">
+                <i class="fa-solid fa-xmark text-xl"></i>
+            </button>
+
+            <div class="flex items-center gap-3 border-b border-slate-800 pb-3">
+                <div class="w-10 h-10 rounded-2xl bg-gradient-to-tr from-emerald-600 to-teal-400 flex items-center justify-center text-slate-950 font-bold shadow-lg">
+                    <i class="fa-solid fa-users text-xl"></i>
+                </div>
+                <div>
+                    <h3 class="font-extrabold text-base text-white">سجل حضور ونشاط الطلاب</h3>
+                    <p class="text-xs text-slate-400">قائمة بالطلاب الذين قاموا بمسح الباركود والدخول للدرس</p>
+                </div>
+            </div>
+
+            <div class="overflow-y-auto flex-1 pr-1">
+                <table class="w-full text-right text-xs">
+                    <thead>
+                        <tr class="text-slate-400 border-b border-slate-800 bg-slate-900/60 sticky top-0">
+                            <th class="p-3">#</th>
+                            <th class="p-3">اسم الطالب</th>
+                            <th class="p-3">رقم الهاتف</th>
+                            <th class="p-3">كود الدخول</th>
+                            <th class="p-3">وقت المسح</th>
+                        </tr>
+                    </thead>
+                    <tbody id="attendanceTableBody" class="divide-y divide-slate-800/60 text-slate-200">
+                        <tr>
+                            <td colspan="5" class="text-center py-8 text-slate-500">لا يوجد تسجيلات حتى الآن. قُم بنشر الباركود للطلاب.</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+
+            <div class="pt-2 border-t border-slate-800 flex items-center justify-between text-xs text-slate-400">
+                <span>إجمالي الطلاب الحاضرين: <strong id="totalAttendanceCount" class="text-emerald-400 font-bold">0</strong></span>
+                <button onclick="exportAttendanceCSV()" class="bg-slate-800 hover:bg-slate-700 text-white font-bold px-3 py-1.5 rounded-xl border border-slate-700 flex items-center gap-1.5">
+                    <i class="fa-solid fa-file-excel text-emerald-400"></i> تصدير البيانات
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Student Viewer Interface -->
+    <div id="studentViewerApp" class="hidden fixed inset-0 z-50 bg-slate-950 text-slate-100 flex-col h-screen w-screen overflow-hidden">
+        <header class="glass-panel px-6 py-4 border-b border-slate-800 flex items-center justify-between">
+            <div class="flex items-center gap-3">
+                <div class="w-10 h-10 rounded-2xl bg-gradient-to-tr from-emerald-500 to-teal-400 flex items-center justify-center text-slate-950 font-extrabold shadow-lg">
+                    <i class="fa-solid fa-book-open text-xl"></i>
+                </div>
+                <div>
+                    <h2 class="font-extrabold text-base text-white">منصة عرض دروس السبورة الذكية</h2>
+                    <p class="text-xs text-slate-400">الرجاء إكمال التسجيل للبدء</p>
+                </div>
+            </div>
+
+            <button id="downloadBtnViewer" onclick="downloadCurrentPageImage()" class="hidden bg-blue-600 hover:bg-blue-500 text-white px-4 py-2 rounded-xl text-xs font-bold transition flex items-center gap-2 shadow-lg">
+                <i class="fa-solid fa-download"></i>
+                <span>حفظ الورقة</span>
+            </button>
+        </header>
+
+        <main class="flex-1 relative flex items-center justify-center p-4 bg-slate-900 overflow-auto">
+            <!-- Student Form Gate -->
+            <div id="studentRegisterModal" class="glass-panel max-w-md w-full rounded-3xl p-6 space-y-4 text-right border border-slate-700 shadow-2xl">
+                <div class="w-12 h-12 bg-blue-500/20 text-blue-400 rounded-2xl flex items-center justify-center mx-auto text-2xl border border-blue-500/30">
+                    <i class="fa-solid fa-user-check"></i>
+                </div>
+                <div class="text-center space-y-1">
+                    <h3 class="font-bold text-lg text-white">التسجيل للدخول إلى الدرس</h3>
+                    <p class="text-xs text-slate-400">يرجى إدخال اسمك ورقم هاتفك للانضمام وعرض أوراق السبورة</p>
+                </div>
+
+                <div class="space-y-3 pt-2 text-xs">
+                    <div class="space-y-1">
+                        <label class="font-bold text-slate-300">الاسم الثلاثي للطالب:</label>
+                        <input type="text" id="studentNameInput" placeholder="أدخل اسمك الكامل هنا" class="w-full bg-slate-950 border border-slate-700 text-white rounded-xl p-3 focus:outline-none focus:border-blue-500 text-xs">
+                    </div>
+
+                    <div class="space-y-1">
+                        <label class="font-bold text-slate-300">رقم الهاتف / الواتساب:</label>
+                        <input type="tel" id="studentPhoneInput" placeholder="01xxxxxxxxx" class="w-full bg-slate-950 border border-slate-700 text-white rounded-xl p-3 focus:outline-none focus:border-blue-500 text-xs font-mono text-left" dir="ltr">
+                    </div>
+                </div>
+
+                <button onclick="submitStudentRegistration()" class="w-full bg-gradient-to-r from-blue-600 to-cyan-500 hover:from-blue-700 hover:to-cyan-600 text-white font-bold py-3 rounded-xl text-xs transition shadow-lg flex items-center justify-center gap-2">
+                    <i class="fa-solid fa-arrow-left-to-bracket"></i>
+                    <span>تأكيد الحضور والدخول للدرس</span>
+                </button>
+            </div>
+
+            <!-- Page Image View -->
+            <div id="viewerContentArea" class="hidden relative max-w-5xl w-full h-full flex flex-col items-center justify-center">
+                <img id="viewerCanvasImage" class="max-h-[80vh] max-w-full object-contain rounded-2xl shadow-2xl border border-slate-800 bg-white" alt="ورقة الدرس">
+            </div>
+        </main>
+
+        <footer class="glass-panel px-6 py-3 border-t border-slate-800 flex items-center justify-between">
+            <div class="text-xs text-slate-400">
+                أوراق الدرس التفاعلي &copy; Smart Board
+            </div>
+
+            <div class="flex items-center gap-4">
+                <button onclick="prevViewerPage()" class="bg-slate-800 hover:bg-slate-700 text-slate-200 px-4 py-2 rounded-xl text-xs font-bold transition flex items-center gap-1">
+                    <i class="fa-solid fa-chevron-right"></i> الورقة السابقة
+                </button>
+                <span class="text-xs font-bold text-white">
+                    ورقة <span id="viewerCurrentPage" class="text-emerald-400">1</span> من <span id="viewerTotalPages">1</span>
+                </span>
+                <button onclick="nextViewerPage()" class="bg-slate-800 hover:bg-slate-700 text-slate-200 px-4 py-2 rounded-xl text-xs font-bold transition flex items-center gap-1">
+                    الورقة التالية <i class="fa-solid fa-chevron-left"></i>
+                </button>
+            </div>
+        </footer>
+    </div>
+
+    <!-- Toast Notifications Container -->
+    <div id="toastBox" class="fixed bottom-6 left-6 z-50 flex flex-col gap-2 pointer-events-none"></div>
+
+    <script>
+        /* ==========================================================================
+           1. APP STATE & CORE DATA STRUCTURES
+           ========================================================================== */
+        const appId = typeof __app_id !== 'undefined' ? __app_id : 'smart-board-app';
+        let db = null;
+        let auth = null;
+
+        // Canvas & Context Handles
+        let canvas = null;
+        let ctx = null;
+
+        // Whiteboard Drawing State
+        let isDrawing = false;
+        let lastX = 0;
+        let lastY = 0;
+        let shapeStartX = 0;
+        let shapeStartY = 0;
+        let canvasSnapshot = null;
+
+        let pages = [ { data: null, history: [], historyIndex: -1 } ];
+        let currentPageIndex = 0;
+        let currentTool = 'pen';
+        let currentShape = 'line';
+        let strokeColor = '#2563eb';
+        let secondaryColor = '#ef4444';
+        let isDualColorMode = false;
+        let strokeWidth = 6;
+        let boardTheme = 'white';
+        let isRulerActive = false;
+
+        // Cloud & Dynamic QR State
+        let activeBoardCloudId = null;
+        let currentActiveToken = null;
+        let attendanceList = [];
+        let boardRealtimeListener = null;
+        let linkTypeMode = 'dynamic'; // 'dynamic' or 'static'
+
+        /* ==========================================================================
+           2. INITIALIZATION ON LOAD
+           ========================================================================== */
+        window.addEventListener('DOMContentLoaded', async () => {
+            canvas = document.getElementById('paintCanvas');
+            ctx = canvas.getContext('2d');
+
+            // Attach Pointer Event Listeners for Stylus and Touch
+            canvas.addEventListener('pointerdown', handlePointerDown);
+            canvas.addEventListener('pointermove', handlePointerMove);
+            canvas.addEventListener('pointerup', handlePointerUp);
+            canvas.addEventListener('pointerleave', handlePointerUp);
+
+            window.addEventListener('resize', resizeCanvas);
+            setupRulerDraggable();
+
+            await initFirebase();
+
+            // Check if user opened via QR Code student link
+            const urlParams = new URLSearchParams(window.location.search);
+            const boardParam = urlParams.get('board');
+            const tokenParam = urlParams.get('token');
+
+            if (boardParam) {
+                initStudentViewerMode(boardParam, tokenParam);
+            } else {
+                resizeCanvas();
+            }
+        });
+
+        function resizeCanvas() {
+            const container = document.getElementById('canvasContainer');
+            if (!container || !canvas) return;
+
+            const newWidth = container.clientWidth || window.innerWidth;
+            const newHeight = container.clientHeight || window.innerHeight;
+
+            // Prevent InvalidStateError when copying from canvas with 0 width or height
+            let tempCanvas = null;
+            if (canvas.width > 0 && canvas.height > 0) {
+                tempCanvas = document.createElement('canvas');
+                tempCanvas.width = canvas.width;
+                tempCanvas.height = canvas.height;
+                const tempCtx = tempCanvas.getContext('2d');
+                tempCtx.drawImage(canvas, 0, 0);
+            }
+
+            canvas.width = newWidth;
+            canvas.height = newHeight;
+
+            applyThemeBackground();
+
+            if (tempCanvas && tempCanvas.width > 0 && tempCanvas.height > 0 && canvas.width > 0 && canvas.height > 0) {
+                ctx.drawImage(tempCanvas, 0, 0, canvas.width, canvas.height);
+            }
+            
+            if (pages[currentPageIndex] && pages[currentPageIndex].history && pages[currentPageIndex].history.length === 0) {
+                saveHistory();
+            }
+        }
+
+        function setBoardTheme(theme) {
+            boardTheme = theme;
+            applyThemeBackground();
+            showToast("تم تغيير خلفية السبورة", "info");
+        }
+
+        function applyThemeBackground() {
+            const container = document.getElementById('canvasContainer');
+            if (!container) return;
+            container.className = "relative w-full h-full transition-colors duration-300 ";
+
+            if (boardTheme === 'white') {
+                container.classList.add('bg-white');
+            } else if (boardTheme === 'white-grid') {
+                container.classList.add('bg-slate-50', 'bg-grid-light');
+            } else if (boardTheme === 'black') {
+                container.classList.add('bg-slate-950');
+            } else if (boardTheme === 'black-grid') {
+                container.classList.add('bg-slate-950', 'bg-grid-dark');
+            }
+        }
+
+        /* ==========================================================================
+           3. DRAWING & GESTURE ENGINE
+           ========================================================================== */
+        function handlePointerDown(e) {
+            if (e.isPrimary === false || (e.targetTouches && e.targetTouches.length >= 3)) {
+                return;
+            }
+
+            isDrawing = true;
+            const rect = canvas.getBoundingClientRect();
+            lastX = e.clientX - rect.left;
+            lastY = e.clientY - rect.top;
+            shapeStartX = lastX;
+            shapeStartY = lastY;
+
+            if (e.pointerType === 'pen' && (e.buttons === 32 || e.button === 5)) {
+                ctx.strokeStyle = getEraserColor();
+                ctx.lineWidth = strokeWidth * 4;
+            } else {
+                ctx.strokeStyle = isDualColorMode ? (e.button === 2 ? secondaryColor : strokeColor) : (currentTool === 'eraser' ? getEraserColor() : strokeColor);
+                ctx.lineWidth = currentTool === 'eraser' ? strokeWidth * 3 : strokeWidth;
+            }
+
+            ctx.lineCap = 'round';
+            ctx.lineJoin = 'round';
+
+            if (currentTool === 'shape') {
+                canvasSnapshot = ctx.getImageData(0, 0, canvas.width, canvas.height);
+            } else {
+                ctx.beginPath();
+                ctx.moveTo(lastX, lastY);
+            }
+        }
+
+        function handlePointerMove(e) {
+            const gestureBubble = document.getElementById('gestureEraserBubble');
+
+            // 3-Finger Palm Eraser Detection
+            if (e.pointerType === 'touch' && e.getCoalescedEvents && e.getCoalescedEvents().length >= 3) {
+                const rect = canvas.getBoundingClientRect();
+                const currentX = e.clientX - rect.left;
+                const currentY = e.clientY - rect.top;
+
+                const radius = 90;
+                gestureBubble.style.width = `${radius * 2}px`;
+                gestureBubble.style.height = `${radius * 2}px`;
+                gestureBubble.style.left = `${e.clientX}px`;
+                gestureBubble.style.top = `${e.clientY}px`;
+                gestureBubble.classList.remove('hidden');
+
+                ctx.save();
+                ctx.beginPath();
+                ctx.arc(currentX, currentY, radius, 0, Math.PI * 2);
+                ctx.clip();
+                ctx.fillStyle = getEraserColor();
+                ctx.fillRect(currentX - radius, currentY - radius, radius * 2, radius * 2);
+                ctx.restore();
+                return;
+            } else {
+                if (gestureBubble) gestureBubble.classList.add('hidden');
+            }
+
+            if (!isDrawing) return;
+
+            const rect = canvas.getBoundingClientRect();
+            const currentX = e.clientX - rect.left;
+            const currentY = e.clientY - rect.top;
+
+            if (currentTool === 'shape') {
+                ctx.putImageData(canvasSnapshot, 0, 0);
+                drawShapePreview(shapeStartX, shapeStartY, currentX, currentY);
+            } else {
+                ctx.quadraticCurveTo(lastX, lastY, (lastX + currentX) / 2, (lastY + currentY) / 2);
+                ctx.stroke();
+                lastX = currentX;
+                lastY = currentY;
+            }
+        }
+
+        function handlePointerUp(e) {
+            const gestureBubble = document.getElementById('gestureEraserBubble');
+            if (gestureBubble) gestureBubble.classList.add('hidden');
+
+            if (isDrawing) {
+                isDrawing = false;
+                ctx.closePath();
+                saveHistory();
+            }
+        }
+
+        function getEraserColor() {
+            return boardTheme.includes('black') ? '#020617' : '#ffffff';
+        }
+
+        function drawShapePreview(x1, y1, x2, y2) {
+            ctx.beginPath();
+            ctx.strokeStyle = strokeColor;
+            ctx.lineWidth = strokeWidth;
+
+            if (currentShape === 'line') {
+                ctx.moveTo(x1, y1);
+                ctx.lineTo(x2, y2);
+            } else if (currentShape === 'arrow') {
+                const headlen = 16;
+                const angle = Math.atan2(y2 - y1, x2 - x1);
+                ctx.moveTo(x1, y1);
+                ctx.lineTo(x2, y2);
+                ctx.lineTo(x2 - headlen * Math.cos(angle - Math.PI / 6), y2 - headlen * Math.sin(angle - Math.PI / 6));
+                ctx.moveTo(x2, y2);
+                ctx.lineTo(x2 - headlen * Math.cos(angle + Math.PI / 6), y2 - headlen * Math.sin(angle + Math.PI / 6));
+            } else if (currentShape === 'rectangle') {
+                ctx.rect(x1, y1, x2 - x1, y2 - y1);
+            } else if (currentShape === 'circle') {
+                const radius = Math.hypot(x2 - x1, y2 - y1);
+                ctx.arc(x1, y1, radius, 0, Math.PI * 2);
+            } else if (currentShape === 'triangle') {
+                ctx.moveTo(x1 + (x2 - x1) / 2, y1);
+                ctx.lineTo(x1, y2);
+                ctx.lineTo(x2, y2);
+                ctx.closePath();
+            }
+            ctx.stroke();
+        }
+
+        function toggleShapesMenu() {
+            const popup = document.getElementById('shapesPopup');
+            popup.classList.toggle('hidden');
+        }
+
+        function selectShape(shape) {
+            currentShape = shape;
+            selectTool('shape');
+            toggleShapesMenu();
+            showToast(`تم اختيار شكل: ${shape}`, "info");
+        }
+
+        function toggleRuler() {
+            const ruler = document.getElementById('rulerOverlay');
+            isRulerActive = !isRulerActive;
+            ruler.classList.toggle('hidden', !isRulerActive);
+        }
+
+        function setupRulerDraggable() {
+            const ruler = document.getElementById('rulerOverlay');
+            if (!ruler) return;
+            let isDragging = false;
+            let startX, startY, initialLeft, initialTop;
+
+            ruler.addEventListener('pointerdown', (e) => {
+                isDragging = true;
+                startX = e.clientX;
+                startY = e.clientY;
+                initialLeft = ruler.offsetLeft;
+                initialTop = ruler.offsetTop;
+                ruler.setPointerCapture(e.pointerId);
+            });
+
+            ruler.addEventListener('pointermove', (e) => {
+                if (!isDragging) return;
+                const dx = e.clientX - startX;
+                const dy = e.clientY - startY;
+                ruler.style.left = `${initialLeft + dx}px`;
+                ruler.style.top = `${initialTop + dy}px`;
+            });
+
+            ruler.addEventListener('pointerup', () => isDragging = false);
+        }
+
+        /* ==========================================================================
+           4. TOOL SELECTION & PAGES ENGINE
+           ========================================================================== */
+        function selectTool(tool) {
+            currentTool = tool;
+            document.querySelectorAll('aside button').forEach(b => b.classList.remove('tool-active'));
+            if (tool === 'pen') document.getElementById('toolPen').classList.add('tool-active');
+            if (tool === 'eraser') document.getElementById('toolEraser').classList.add('tool-active');
+            if (tool === 'shape') document.getElementById('toolShapesBtn').classList.add('tool-active');
+        }
+
+        function toggleDualColorMode() {
+            isDualColorMode = !isDualColorMode;
+            const btn = document.getElementById('toolDualPen');
+            if (isDualColorMode) {
+                btn.classList.add('tool-active');
+                showToast("تفعيل قلم اللونين (الزر الأيمن ينقر باللون الثاني)", "info");
+            } else {
+                btn.classList.remove('tool-active');
+            }
+        }
+
+        function setColor(hex) {
+            strokeColor = hex;
+            if (currentTool === 'eraser') selectTool('pen');
+            showToast("تم تغيير اللون", "info");
+        }
+
+        function setStrokeWidth(val) {
+            strokeWidth = parseInt(val);
+            document.getElementById('strokeWidthDisplay').innerText = `${val}px`;
+        }
+
+        function addNewPage() {
+            pages[currentPageIndex].data = canvas.toDataURL();
+            pages.push({ data: null, history: [], historyIndex: -1 });
+            currentPageIndex = pages.length - 1;
+
+            clearCanvasData();
+            updatePageCounterUI();
+            saveHistory();
+            showToast("تم إضافة ورقة جديدة", "success");
+        }
+
+        function nextPage() {
+            if (currentPageIndex < pages.length - 1) switchPage(currentPageIndex + 1);
+        }
+
+        function prevPage() {
+            if (currentPageIndex > 0) switchPage(currentPageIndex - 1);
+        }
+
+        function switchPage(index) {
+            pages[currentPageIndex].data = canvas.toDataURL();
+            currentPageIndex = index;
+            clearCanvasData();
+
+            if (pages[currentPageIndex].data) {
+                const img = new Image();
+                img.onload = () => ctx.drawImage(img, 0, 0);
+                img.src = pages[currentPageIndex].data;
+            }
+
+            updatePageCounterUI();
+        }
+
+        function updatePageCounterUI() {
+            document.getElementById('currentPageNum').innerText = currentPageIndex + 1;
+            document.getElementById('totalPagesNum').innerText = pages.length;
+        }
+
+        function clearCurrentPage() {
+            clearCanvasData();
+            saveHistory();
+            showToast("تم مسح الورقة الحالية", "info");
+        }
+
+        function clearCanvasData() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            applyThemeBackground();
+        }
+
+        /* ==========================================================================
+           5. UNDO / REDO HISTORY ENGINE
+           ========================================================================== */
+        function saveHistory() {
+            const pageObj = pages[currentPageIndex];
+            if (pageObj.historyIndex < pageObj.history.length - 1) {
+                pageObj.history = pageObj.history.slice(0, pageObj.historyIndex + 1);
+            }
+            pageObj.history.push(canvas.toDataURL());
+            pageObj.historyIndex++;
+        }
+
+        function undo() {
+            const pageObj = pages[currentPageIndex];
+            if (pageObj.historyIndex > 0) {
+                pageObj.historyIndex--;
+                restoreHistoryState(pageObj.history[pageObj.historyIndex]);
+            }
+        }
+
+        function redo() {
+            const pageObj = pages[currentPageIndex];
+            if (pageObj.historyIndex < pageObj.history.length - 1) {
+                pageObj.historyIndex++;
+                restoreHistoryState(pageObj.history[pageObj.historyIndex]);
+            }
+        }
+
+        function restoreHistoryState(dataUrl) {
+            clearCanvasData();
+            const img = new Image();
+            img.onload = () => ctx.drawImage(img, 0, 0);
+            img.src = dataUrl;
+        }
+
+        /* ==========================================================================
+           6. FIREBASE & DYNAMIC QR SYSTEM
+           ========================================================================== */
+        async function initFirebase() {
+            try {
+                if (typeof __firebase_config !== 'undefined') {
+                    const config = JSON.parse(__firebase_config);
+                    const app = window.firebaseStore.initializeApp(config);
+                    db = window.firebaseStore.getFirestore(app);
+                    auth = window.firebaseStore.getAuth(app);
+
+                    if (typeof __initial_auth_token !== 'undefined') {
+                        await window.firebaseStore.signInWithCustomToken(auth, __initial_auth_token);
+                    } else {
+                        await window.firebaseStore.signInAnonymously(auth);
+                    }
+                }
+            } catch (err) {
+                console.warn("Firebase Fallback:", err);
+            }
+        }
+
+        function generateRandomToken() {
+            return Math.floor(100000 + Math.random() * 900000).toString();
+        }
+
+        function openShareModal() {
+            const customInput = document.getElementById('customBaseUrlInput');
+            const blobWarn = document.getElementById('blobWarningText');
+            let currentUrl = window.location.href.split('?')[0].split('#')[0];
+
+            if (currentUrl.startsWith('blob:')) {
+                if (blobWarn) blobWarn.classList.remove('hidden');
+                if (customInput && !customInput.value) {
+                    customInput.value = currentUrl.replace('blob:', '');
+                }
+            } else {
+                if (blobWarn) blobWarn.classList.add('hidden');
+                if (customInput && !customInput.value) {
+                    customInput.value = currentUrl;
+                }
+            }
+
+            document.getElementById('shareModal').classList.remove('hidden');
+        }
+
+        function closeShareModal() {
+            document.getElementById('shareModal').classList.add('hidden');
+        }
+
+        function openAttendanceModal() {
+            document.getElementById('attendanceModal').classList.remove('hidden');
+        }
+
+        function closeAttendanceModal() {
+            document.getElementById('attendanceModal').classList.add('hidden');
+        }
+
+        function setLinkTypeMode(mode) {
+            linkTypeMode = mode;
+            const noticeText = document.getElementById('qrNoticeText');
+            if (mode === 'static') {
+                if (noticeText) noticeText.innerHTML = `<i class="fa-solid fa-link text-xs"></i> الرابط والباركود موحد وثابت لجميع الطلاب.`;
+                showToast("تم اختيار نظام الرابط الموحد للجميع", "info");
+            } else {
+                if (noticeText) noticeText.innerHTML = `<i class="fa-solid fa-rotate text-xs animate-spin"></i> سيتم تجديد الباركود تلقائياً فور قيام الطالب بالمسح!`;
+                showToast("تم اختيار نظام الرابط المتغير (لكل طالب كود فريد)", "info");
+            }
+            if (activeBoardCloudId) {
+                renderDynamicQRCode();
+            }
+        }
+
+        async function processCloudPublish() {
+            pages[currentPageIndex].data = canvas.toDataURL();
+            const pagesImages = pages.map(p => p.data || canvas.toDataURL());
+
+            const expiryVal = document.getElementById('qrExpirySelect').value;
+            let expiryHours = 24;
+            if (expiryVal === '1h') expiryHours = 1;
+            if (expiryVal === '7d') expiryHours = 24 * 7;
+
+            const expireAt = Date.now() + (expiryHours * 60 * 60 * 1000);
+
+            if (!activeBoardCloudId) {
+                activeBoardCloudId = `board_${Date.now()}`;
+            }
+            
+            if (!currentActiveToken) {
+                currentActiveToken = generateRandomToken();
+            }
+
+            const boardDocument = {
+                pages: pagesImages,
+                theme: boardTheme,
+                createdAt: Date.now(),
+                expireAt: expireAt,
+                activeToken: currentActiveToken,
+                linkMode: linkTypeMode,
+                attendees: attendanceList
+            };
+
+            if (db) {
+                try {
+                    const docRef = window.firebaseStore.doc(db, 'artifacts', appId, 'public', 'data', 'whiteboards', activeBoardCloudId);
+                    await window.firebaseStore.setDoc(docRef, boardDocument, { merge: true });
+
+                    listenToBoardChanges(activeBoardCloudId);
+                } catch (e) {
+                    console.error("Firestore Publish Error:", e);
+                }
+            }
+
+            renderDynamicQRCode();
+
+            document.getElementById('qrResultContainer').classList.remove('hidden');
+            document.getElementById('qrResultContainer').classList.add('flex');
+
+            showToast("تم توليد الرابط والباركود بنجاح!", "success");
+        }
+
+        function renderDynamicQRCode() {
+            let baseUrl = document.getElementById('customBaseUrlInput')?.value.trim();
+
+            if (!baseUrl) {
+                baseUrl = window.location.href.split('?')[0].split('#')[0];
+            }
+
+            // Always strip blob: if present
+            if (baseUrl.startsWith('blob:')) {
+                baseUrl = baseUrl.replace('blob:', '');
+            }
+
+            const fullShareUrl = linkTypeMode === 'static' 
+                ? `${baseUrl}?board=${activeBoardCloudId}` 
+                : `${baseUrl}?board=${activeBoardCloudId}&token=${currentActiveToken}`;
+
+            const qrCanvas = document.getElementById('qrcodeCanvas');
+            if (qrCanvas) {
+                qrCanvas.innerHTML = '';
+                new QRCode(qrCanvas, {
+                    text: fullShareUrl,
+                    width: 170,
+                    height: 170,
+                    colorDark: "#0f172a",
+                    colorLight: "#ffffff"
+                });
+            }
+
+            document.getElementById('shareUrlInput').value = fullShareUrl;
+            document.getElementById('generatedPinCode').innerText = linkTypeMode === 'static' ? 'عام' : currentActiveToken;
+        }
+
+        function listenToBoardChanges(boardId) {
+            if (!db || boardRealtimeListener) return;
+
+            const docRef = window.firebaseStore.doc(db, 'artifacts', appId, 'public', 'data', 'whiteboards', boardId);
+
+            boardRealtimeListener = window.firebaseStore.onSnapshot(docRef, (snapshot) => {
+                if (snapshot.exists()) {
+                    const data = snapshot.data();
+
+                    if (data.attendees) {
+                        const previousCount = attendanceList.length;
+                        attendanceList = data.attendees;
+
+                        if (attendanceList.length > previousCount) {
+                            const latestStudent = attendanceList[attendanceList.length - 1];
+                            showToast(`قام الطالب (${latestStudent.name}) بمسح الباركود والدخول!`, "success");
+
+                            rotateTokenForNextStudent();
+                        }
+
+                        renderAttendanceTable();
+                    }
+                }
+            }, (err) => console.warn("Realtime Listener Error:", err));
+        }
+
+        async function rotateTokenForNextStudent() {
+            if (linkTypeMode === 'static') return;
+
+            currentActiveToken = generateRandomToken();
+            renderDynamicQRCode();
+
+            if (db && activeBoardCloudId) {
+                const docRef = window.firebaseStore.doc(db, 'artifacts', appId, 'public', 'data', 'whiteboards', activeBoardCloudId);
+                await window.firebaseStore.updateDoc(docRef, {
+                    activeToken: currentActiveToken
+                });
+            }
+        }
+
+        function renderAttendanceTable() {
+            const tbody = document.getElementById('attendanceTableBody');
+            document.getElementById('totalAttendanceCount').innerText = attendanceList.length;
+            document.getElementById('headerAttendanceBadge').innerText = attendanceList.length;
+
+            if (attendanceList.length === 0) {
+                tbody.innerHTML = `<tr><td colspan="5" class="text-center py-8 text-slate-500">لا يوجد تسجيلات حتى الآن. قُم بنشر الباركود للطلاب.</td></tr>`;
+                return;
+            }
+
+            tbody.innerHTML = attendanceList.map((st, i) => `
+                <tr class="hover:bg-slate-800/40 transition">
+                    <td class="p-3 font-bold text-slate-400">${i + 1}</td>
+                    <td class="p-3 font-bold text-white flex items-center gap-2">
+                        <i class="fa-solid fa-user-graduate text-emerald-400"></i> ${st.name}
+                    </td>
+                    <td class="p-3 font-mono text-cyan-300" dir="ltr">${st.phone}</td>
+                    <td class="p-3 font-mono text-amber-300">${st.token || 'عام'}</td>
+                    <td class="p-3 text-slate-400 text-[11px]">${st.time}</td>
+                </tr>
+            `).join('');
+        }
+
+        function exportAttendanceCSV() {
+            if (attendanceList.length === 0) {
+                showToast("لا توجد بيانات لتصديرها", "error");
+                return;
+            }
+
+            let csvContent = "data:text/csv;charset=utf-8,الرقم,اسم الطالب,رقم الهاتف,كود الدخول,وقت المسح\n";
+            attendanceList.forEach((st, i) => {
+                csvContent += `${i + 1},"${st.name}","${st.phone}","${st.token}","${st.time}"\n`;
+            });
+
+            const encodedUri = encodeURI(csvContent);
+            const link = document.createElement("a");
+            link.setAttribute("href", encodedUri);
+            link.setAttribute("download", `سجل_حضور_السبورة_${Date.now()}.csv`);
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+        }
+
+        function copyShareUrl() {
+            const input = document.getElementById('shareUrlInput');
+            if (!input.value) {
+                showToast("الرجاء بدء بث الباركود أولاً للحصول على الرابط", "error");
+                return;
+            }
+            input.select();
+            document.execCommand('copy');
+            showToast("تم نسخ رابط الدرس المباشر إلى الحافظة بنجاح!", "success");
+        }
+
+        /* ==========================================================================
+           7. STUDENT VIEWER MODE LOGIC
+           ========================================================================== */
+        let studentPages = [];
+        let currentStudentPageIndex = 0;
+        let targetBoardId = null;
+        let scannedToken = null;
+
+        async function initStudentViewerMode(boardId, token) {
+            targetBoardId = boardId;
+            scannedToken = token;
+
+            document.getElementById('whiteboardApp').classList.add('hidden');
+            document.getElementById('studentViewerApp').classList.remove('hidden');
+            document.getElementById('studentViewerApp').classList.add('flex');
+
+            if (typeof __firebase_config !== 'undefined') {
+                const config = JSON.parse(__firebase_config);
+                const app = window.firebaseStore.initializeApp(config);
+                db = window.firebaseStore.getFirestore(app);
+                auth = window.firebaseStore.getAuth(app);
+
+                if (typeof __initial_auth_token !== 'undefined') {
+                    await window.firebaseStore.signInWithCustomToken(auth, __initial_auth_token);
+                } else {
+                    await window.firebaseStore.signInAnonymously(auth);
+                }
+            }
+        }
+
+        async function submitStudentRegistration() {
+            const nameInput = document.getElementById('studentNameInput').value.trim();
+            const phoneInput = document.getElementById('studentPhoneInput').value.trim();
+
+            if (!nameInput || nameInput.length < 3) {
+                showToast("يرجى إدخال اسمك الثلاثي بشكل صحيح", "error");
+                return;
+            }
+
+            if (!phoneInput || phoneInput.length < 8) {
+                showToast("يرجى إدخال رقم هاتف صحيح", "error");
+                return;
+            }
+
+            if (!db || !targetBoardId) {
+                showToast("جاري التوصيل، حاول مرة أخرى...", "error");
+                return;
+            }
+
+            try {
+                const docRef = window.firebaseStore.doc(db, 'artifacts', appId, 'public', 'data', 'whiteboards', targetBoardId);
+                const snap = await window.firebaseStore.getDoc(docRef);
+
+                if (!snap.exists()) {
+                    showToast("وثيقة الدرس غير موجودة أو تم حذفها", "error");
+                    return;
+                }
+
+                const boardData = snap.data();
+
+                if (Date.now() > boardData.expireAt) {
+                    showToast("عذراً، انتهت صلاحية رابط هذا الدرس", "error");
+                    return;
+                }
+
+                const studentRecord = {
+                    name: nameInput,
+                    phone: phoneInput,
+                    token: scannedToken || 'عام',
+                    time: new Date().toLocaleTimeString('ar-EG', { hour: '2-digit', minute: '2-digit', second: '2-digit' })
+                };
+
+                const updatedAttendees = boardData.attendees ? [...boardData.attendees, studentRecord] : [studentRecord];
+
+                await window.firebaseStore.updateDoc(docRef, {
+                    attendees: updatedAttendees
+                });
+
+                studentPages = boardData.pages || [];
+                currentStudentPageIndex = 0;
+
+                document.getElementById('studentRegisterModal').classList.add('hidden');
+                document.getElementById('viewerContentArea').classList.remove('hidden');
+                document.getElementById('downloadBtnViewer').classList.remove('hidden');
+                document.getElementById('viewerTotalPages').innerText = studentPages.length;
+
+                renderStudentPage();
+                showToast(`مرحباً بك يا ${nameInput}! تم تسجيل دخولك بنجاح.`, "success");
+
+            } catch (err) {
+                console.error("Error registering student:", err);
+                showToast("حدث خطأ أثناء التسجيل، حاول مجدداً", "error");
+            }
+        }
+
+        function renderStudentPage() {
+            if (studentPages.length > 0) {
+                document.getElementById('viewerCanvasImage').src = studentPages[currentStudentPageIndex];
+                document.getElementById('viewerCurrentPage').innerText = currentStudentPageIndex + 1;
+            }
+        }
+
+        function prevViewerPage() {
+            if (currentStudentPageIndex > 0) {
+                currentStudentPageIndex--;
+                renderStudentPage();
+            }
+        }
+
+        function nextViewerPage() {
+            if (currentStudentPageIndex < studentPages.length - 1) {
+                currentStudentPageIndex++;
+                renderStudentPage();
+            }
+        }
+
+        function downloadCurrentPageImage() {
+            const a = document.createElement('a');
+            a.href = studentPages[currentStudentPageIndex];
+            a.download = `SmartBoard_Page_${currentStudentPageIndex + 1}.png`;
+            a.click();
+            showToast("تم تحميل ورقة الدرس", "success");
+        }
+
+        /* ==========================================================================
+           8. TOAST NOTIFICATIONS
+           ========================================================================== */
+        function showToast(msg, type = "info") {
+            const container = document.getElementById('toastBox');
+            if (!container) return;
+            const toast = document.createElement('div');
+
+            let typeBg = "bg-slate-900/90 border-slate-700 text-slate-200";
+            let icon = "fa-circle-info text-cyan-400";
+
+            if (type === "success") {
+                typeBg = "bg-emerald-950/90 border-emerald-600 text-emerald-100";
+                icon = "fa-circle-check text-emerald-400";
+            } else if (type === "error") {
+                typeBg = "bg-rose-950/90 border-rose-600 text-rose-100";
+                icon = "fa-circle-xmark text-rose-400";
+            }
+
+            toast.className = `flex items-center gap-3 px-4 py-3 rounded-2xl border ${typeBg} shadow-2xl backdrop-blur-md text-xs font-semibold transform transition-all duration-300 translate-y-4 opacity-0 pointer-events-auto`;
+            toast.innerHTML = `<i class="fa-solid ${icon} text-base"></i> <span>${msg}</span>`;
+
+            container.appendChild(toast);
+
+            setTimeout(() => toast.classList.remove('translate-y-4', 'opacity-0'), 50);
+            setTimeout(() => {
+                toast.classList.add('opacity-0', 'translate-y-2');
+                setTimeout(() => toast.remove(), 300);
+            }, 3000);
+        }
+    </script>
+</body>
+</html>
